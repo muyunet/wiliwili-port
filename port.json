@@ -46,7 +46,6 @@
     },
     "files": {
         "port.json": "port.json",
-        "Wiliwili.sh": "Wiliwili.sh",
-        "wiliwili": "wiliwili"
+        "Wiliwili.sh": "Wiliwili.sh"
     }
 }
