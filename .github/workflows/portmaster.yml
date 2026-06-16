@@ -1,0 +1,231 @@
+name: Build wiliwili for PortMaster
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout packaging repo
+        uses: actions/checkout@v4
+        with:
+          path: my_repo
+
+      - name: Checkout wiliwili source
+        uses: actions/checkout@v4
+        with:
+          repository: xfangfang/wiliwili
+          ref: yoga
+          submodules: recursive
+          path: wiliwili_source
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build inside aarch64 Docker
+        run: |
+          mkdir -p output
+          # Pre-create the output directory owned by current user to avoid root-only permissions
+          touch output/.gitkeep
+
+          docker run --rm --platform=linux/arm64 \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            -v "${{ github.workspace }}:/workspace" \
+            ghcr.io/monkeyx-net/portmaster-build-templates/portmaster-builder:aarch64-latest \
+            bash -c '
+              set -e
+
+              # ── Install build dependencies ──
+              apt-get update -qq
+              apt-get install -y -qq --no-install-recommends \
+                git build-essential cmake ninja-build \
+                libmpv-dev zlib1g-dev \
+                libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+                pkg-config file binutils wget autoconf libtool perl
+              # NOTE: libsdl2-dev, libwebp-dev, libssl-dev, libcurl4-openssl-dev
+              #   intentionally omitted — all built from source as static below.
+              #   zlib1g-dev provides libz.a; BUILD_SHARED_LIBS=OFF prefers it.
+
+              # ── Build static OpenSSL (for curl) ──
+              echo "=== Building static OpenSSL ==="
+              cd /tmp
+              wget -q https://github.com/openssl/openssl/releases/download/openssl-3.0.15/openssl-3.0.15.tar.gz
+              tar xf openssl-3.0.15.tar.gz
+              cd openssl-3.0.15
+              ./Configure linux-aarch64 no-shared no-dso --prefix=/usr/local --openssldir=/usr/local/ssl
+              make -j"$(nproc)" && make install_sw
+
+              # ── Build static libwebp ──
+              echo "=== Building static libwebp ==="
+              cd /tmp
+              WEBP_VER=1.4.0
+              wget -q "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-${WEBP_VER}.tar.gz"
+              tar xf "libwebp-${WEBP_VER}.tar.gz"
+              cd "libwebp-${WEBP_VER}"
+              ./configure --prefix=/usr/local --enable-static --disable-shared --disable-gl --disable-sdl --disable-png --disable-jpeg --disable-tiff --disable-gif --disable-wic
+              make -j"$(nproc)" && make install
+
+              cd /workspace/wiliwili_source
+
+              # Log glibc version for debugging (must be ≤ device CFW_GLIBC)
+              echo "=== Build environment ==="
+              ldd --version 2>&1 | head -1
+
+              # PLATFORM_DESKTOP builds for Linux aarch64 with standard OpenGL.
+              # USE_GL2 restricts borealis/nanovg to OpenGL 2.1 so GL4ES
+              # (provided by the Westonpack runtime) can translate calls to
+              # GLES2, which is all that Mali / Rockchip GPUs support.
+              #
+              # Static (compiled into binary, zero .so):
+              #   SDL2     — borealis vendored source
+              #   libwebp  — from source above
+              #   OpenSSL  — from source above (libssl + libcrypto)
+              #   zlib     — zlib1g-dev provides libz.a; BUILD_SHARED_LIBS=OFF prefers it
+              #   libcurl  — built by cpr submodule (USE_SYSTEM_CURL=OFF)
+              #   libgcc / libstdc++ — -static-libgcc -static-libstdc++
+              # Shared (bundled via rpath, only the mpv/ffmpeg chain):
+              #   libmpv + ffmpeg codecs (+ their transitive deps)
+              cmake -B build -G Ninja \
+                -DPLATFORM_DESKTOP=ON \
+                -DUSE_SDL2=ON \
+                -DUSE_GL2=ON \
+                -DUSE_SYSTEM_CURL=OFF \
+                -DCPR_FORCE_OPENSSL_BACKEND=ON \
+                -DCPR_ENABLE_CURL_HTTP_ONLY=ON \
+                -DOPENSSL_ROOT_DIR=/usr/local \
+                -DOPENSSL_USE_STATIC_LIBS=ON \
+                -DCMAKE_PREFIX_PATH=/usr/local \
+                -DBUILD_SHARED_LIBS=OFF \
+                -DCMAKE_BUILD_TYPE=Release \
+                "-DCMAKE_EXE_LINKER_FLAGS=-static-libgcc -static-libstdc++ -Wl,--exclude-libs,ALL -Wl,-rpath,\$ORIGIN/../libs.aarch64 -Wl,-z,origin"
+
+              cmake --build build -j"$(nproc)"
+
+              # ── Assemble port directory ──
+              # Zip structure (PortMaster extracts this into ports/wiliwili/):
+              #   Wiliwili.sh        ← launcher (port root)
+              #   port.json          ← metadata (port root)
+              #   gameinfo.xml
+              #   screenshot.jpg
+              #   cover.jpg
+              #   wiliwili/          ← data directory
+              #     wiliwili         ← binary
+              #     libs.aarch64/    ← bundled shared libs
+              #     licenses/        ← license files
+              OUT=/workspace/output
+              DATA_DIR="${OUT}/wiliwili"
+              LIBS_DIR="${DATA_DIR}/libs.aarch64"
+              LICENSE_DIR="${DATA_DIR}/licenses"
+
+              mkdir -p "${LIBS_DIR}" "${LICENSE_DIR}"
+
+              # Strip & copy binary
+              cp /workspace/wiliwili_source/build/wiliwili "${DATA_DIR}/"
+              strip "${DATA_DIR}/wiliwili" || true
+
+              # Copy resources (XML layouts, i18n, fonts, icons)
+              if [ -d /workspace/wiliwili_source/build/resources ]; then
+                cp -r /workspace/wiliwili_source/build/resources "${DATA_DIR}/resources"
+              fi
+
+              # ── Extract non-system shared libraries ──
+              echo "=== Extracting runtime libraries ==="
+              # First, dump all linked libs to a temp file (avoid subshell issues)
+              ldd "${DATA_DIR}/wiliwili" 2>/dev/null | grep "=> /" | awk "{print \$3}" > /tmp/ldd_libs.txt
+
+              while read -r lib; do
+                [ -z "$lib" ] && continue
+                [ -f "$lib" ] || continue
+                libname=$(basename "$lib")
+                # Skip glibc / gcc / kernel (provided by every device)
+                case "$libname" in
+                  ld-*|ld-linux*|libc.so*|libm.so*|libdl.so*|librt.so*|\
+                  libpthread*|libresolv*|libnss_*|libutil.so*|libBrokenLocale*|\
+                  libstdc++.so*|libgcc_s.so*) continue ;;
+                  # Skip GPU / KMS driver libs — must come from the device, not Docker
+                  libdrm*|libEGL*|libGLES*|libGL.so*|\
+                  libwayland*|libxkbcommon*) continue ;;
+                  # Skip util-linux — ABI varies by kernel version, breaks mount/umount
+                  libmount*|libblkid*|libuuid*|libfdisk*|libsmartcols*) continue ;;
+                esac
+                cp -L "$lib" "${LIBS_DIR}/"
+                strip "${LIBS_DIR}/${libname}" 2>/dev/null || true
+              done < /tmp/ldd_libs.txt
+
+              # ── Ensure critical shared libs are present (only mpv chain remains) ──
+              echo "=== Verifying critical libraries ==="
+              for soname in libmpv.so.1 libmpv.so.2; do
+                if [ ! -f "${LIBS_DIR}/${soname}" ]; then
+                  found=$(find /usr/lib -name "${soname}" -type f 2>/dev/null | head -1)
+                  if [ -n "$found" ] && [ -f "$found" ]; then
+                    cp -L "$found" "${LIBS_DIR}/"
+                    strip "${LIBS_DIR}/${soname}" 2>/dev/null || true
+                    echo "  Manually bundled: ${soname}"
+                  fi
+                else
+                  echo "  OK: ${soname}"
+                fi
+              done
+
+              # ── Collect licenses ──
+              echo "=== Collecting licenses ==="
+              for pkg in libmpv libwebp libsdl2 libssl libcurl openssl; do
+                for cand in \
+                  /usr/share/doc/${pkg}*/copyright \
+                  /usr/share/doc/${pkg}-*/copyright \
+                  /usr/share/doc/${pkg}[0-9]*/copyright; do
+                  if [ -f "$cand" ]; then
+                    tag=$(basename "$(dirname "$cand")")
+                    cp "$cand" "${LICENSE_DIR}/${tag}.copyright" 2>/dev/null || true
+                  fi
+                done
+              done
+
+              # Copy wiliwili upstream license alongside the binary
+              if [ -f /workspace/wiliwili_source/LICENSE ]; then
+                cp /workspace/wiliwili_source/LICENSE "${DATA_DIR}/LICENSE" 2>/dev/null || true
+              fi
+
+              # ── Place metadata ──
+              cp /workspace/my_repo/Wiliwili.sh         "${OUT}/"                      2>/dev/null || true
+              chmod +x "${OUT}/Wiliwili.sh"                                             2>/dev/null || true
+
+              cp /workspace/my_repo/port.json            "${OUT}/"                      2>/dev/null || true
+              cp /workspace/my_repo/gameinfo.xml         "${OUT}/"                      2>/dev/null || true
+              cp /workspace/my_repo/README.md            "${OUT}/"                      2>/dev/null || true
+              cp /workspace/my_repo/screenshot.jpg       "${OUT}/"                      2>/dev/null || true
+              cp /workspace/my_repo/cover.jpg            "${OUT}/"                      2>/dev/null || true
+
+              # ── Fix ownership so the host user can access files ──
+              chown -R "${HOST_UID}:${HOST_GID}" /workspace/output
+
+              # ── Print final bundle summary ──
+              echo "=== Bundled libraries ==="
+              ls -la "${LIBS_DIR}/" || echo "  (empty)"
+              echo "=== Bundle size ==="
+              du -sh "${DATA_DIR}/"
+              echo "=== Build complete ==="
+            '
+
+      - name: Fix permissions (fallback)
+        if: always()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" output || true
+
+      - name: Create zip
+        run: |
+          rm -f output/.gitkeep
+          cd output
+          zip -r ../wiliwili.zip ./*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wiliwili-portmaster
+          path: wiliwili.zip

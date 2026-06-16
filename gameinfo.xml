@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<gameList>
+  <game>
+    <path>./Wiliwili.sh</path>
+    <name>wiliwili</name>
+    <desc>wiliwili is an open-source Bilibili client delivering an experience similar to the official PC client, supporting touch/mouse/keyboard/gamepad controls and optimized for both desktop and handheld devices.</desc>
+    <releasedate>20260616T000000</releasedate>
+    <developer>Xfangfang</developer>
+    <publisher>Muyun</publisher>
+    <genre>Other</genre>
+    <image>./cover.jpg</image>
+  </game>
+</gameList>

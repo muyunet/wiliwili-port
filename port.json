@@ -1,0 +1,52 @@
+{
+    "version": 4,
+    "name": "wiliwili.zip",
+    "items": [
+        "Wiliwili.sh",
+        "wiliwili"
+    ],
+    "items_opt": null,
+    "attr": {
+        "title": "wiliwili",
+        "porter": [
+            "Muyun"
+        ],
+        "desc": "wiliwili is an open-source Bilibili client delivering an experience similar to the official PC client, supporting touch/mouse/keyboard/gamepad controls and optimized for both desktop and handheld devices.",
+        "desc_md": null,
+        "inst": "Multilingual: Simplified Chinese, Traditional Chinese, English...\nTheme: Light / Dark\nPlayer: Video, Bangumi, Film and TV show\nFilter: Quickly find the movie and bangumi\nSearch: TV style, Videos and Bangumi...\nActivity: Recently updated video of the following uploader\nLive: Support watching the following uploader and other system recommendations\nPersonal Page: Scan Code Login, History, Favourites ...",
+        "inst_md": null,
+        "genres": [
+            "other"
+        ],
+        "image": {
+            "screenshot": "screenshot.jpg",
+            "covers": ["cover.jpg"],
+            "thumbnail": null,
+            "video": null
+        },
+        "rtr": true,
+        "exp": false,
+        "runtime": [
+            "weston_pkg_0.2.squashfs"
+        ],
+        "store": [],
+        "availability": "full",
+        "reqs": [
+            "power"
+        ],
+        "arch": [
+            "aarch64"
+        ],
+        "min_glibc": "2.31"
+    },
+    "status": {
+        "source": "Unknown",
+        "md5": null,
+        "status": "Installed"
+    },
+    "files": {
+        "port.json": "port.json",
+        "Wiliwili.sh": "Wiliwili.sh",
+        "wiliwili": "wiliwili"
+    }
+}
