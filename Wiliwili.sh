@@ -81,6 +81,10 @@ $ESUDO kill -9 $(pidof gptokeyb) 2>/dev/null
 #   LIBGL_FB=4        — PortMaster framebuffer mode (forces texture color attachment)
 #   LIBGL_DEFAULTWRAP=0 — force GL_REPEAT; fixes chroma-sampling skew with NPOT video textures
 #   LIBGL_FORCENPOT=1   — enable full non-power-of-two texture support for video frames
+#   SDL_JOYSTICK_DRIVER=evdev — bypass XWayland/libinput; EVIOCGRAB blocks keyboard
+#                                events from dual-mode (Keyboard+Joystick) input devices,
+#                                preventing borealis's keyboard fallback from overriding
+#                                the correct SDL gamepad mapping
 # If video rendering issues persist, try adding: LIBGL_NOXJIT=1 LIBGL_FBOUNBIND=1
 $ESUDO env \
     CRUSTY_RESOLUTION="${DISPLAY_WIDTH}x${DISPLAY_HEIGHT}" \
@@ -97,6 +101,7 @@ $ESUDO env \
         LIBGL_FB=4 \
         LIBGL_DEFAULTWRAP=0 \
         LIBGL_FORCENPOT=1 \
+        SDL_JOYSTICK_DRIVER=evdev \
         SDL_GAMECONTROLLERCONFIG="$sdl_controllerconfig" \
         ./wiliwili
 
