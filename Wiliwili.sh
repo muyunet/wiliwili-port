@@ -155,6 +155,20 @@ if [ -f "$GAMEDIR/swap_abxy.flag" ]; then
         s/,x:b([0-9]+),y:b([0-9]+),/,x:b\2,y:b\1,/')
 fi
 
+# ── GL4ES configuration (PortMaster standard) ──
+# Follow Stardew Valley / other PortMaster ports: source the CFW-specific
+# GL4ES config when available, falling back to the default.  We then layer
+# wiliwili-specific fixes on top.
+if [ -f "${controlfolder}/libgl_${CFW_NAME}.txt" ]; then
+    source "${controlfolder}/libgl_${CFW_NAME}.txt"
+else
+    source "${controlfolder}/libgl_default.txt"
+fi
+# Always ensure these critical vars are set (libgl_*.txt may not define them)
+: "${LIBGL_ES:=2}"
+: "${LIBGL_GL:=21}"
+: "${LIBGL_FB:=4}"
+
 # ── Mount Weston runtime ──
 weston_dir=/tmp/weston
 $ESUDO mkdir -p "${weston_dir}"
@@ -182,17 +196,14 @@ pm_platform_helper "wiliwili"
 $ESUDO kill -9 $(pidof gptokeyb) 2>/dev/null
 
 # ── Launch ──
-# GL4ES (OpenGL→GLES2) configuration:
-#   LIBGL_ES=2        — use GLES 2.0 backend
-#   LIBGL_GL=21       — expose desktop OpenGL 2.1
-#   LIBGL_FB=4        — PortMaster framebuffer mode (forces texture color attachment)
+# GL4ES base config (LIBGL_ES/GL/FB) is sourced from PortMaster's
+# libgl_${CFW_NAME}.txt or libgl_default.txt above.  Only wiliwili-specific
+# GL4ES workarounds are added inline here.
 #   LIBGL_DEFAULTWRAP=0 — force GL_REPEAT; fixes chroma-sampling skew with NPOT video textures
 #   LIBGL_FORCENPOT=1   — enable full non-power-of-two texture support for video frames
 #   SDL_JOYSTICK_DRIVER=evdev — bypass XWayland/libinput; EVIOCGRAB blocks keyboard
-#                                events from dual-mode (Keyboard+Joystick) input devices,
-#                                preventing borealis's keyboard fallback from overriding
-#                                the correct SDL gamepad mapping
-# If video rendering issues persist, try adding: LIBGL_NOXJIT=1 LIBGL_FBOUNBIND=1
+#                                events from dual-mode (Keyboard+Joystick) input devices
+# If video rendering issues persist, try: LIBGL_NOXJIT=1 LIBGL_FBOUNBIND=1
 $ESUDO env \
     CRUSTY_RESOLUTION="${DISPLAY_WIDTH}x${DISPLAY_HEIGHT}" \
     CRUSTY_SHOW_CURSOR=0 \
@@ -203,9 +214,9 @@ $ESUDO env \
     "$weston_dir/westonwrap.sh" \
         headless noop kiosk crusty_glx_gl4es \
         WAYLAND_DISPLAY= \
-        LIBGL_ES=2 \
-        LIBGL_GL=21 \
-        LIBGL_FB=4 \
+        LIBGL_ES="$LIBGL_ES" \
+        LIBGL_GL="$LIBGL_GL" \
+        LIBGL_FB="$LIBGL_FB" \
         LIBGL_DEFAULTWRAP=0 \
         LIBGL_FORCENPOT=1 \
         SDL_JOYSTICK_DRIVER=evdev \
