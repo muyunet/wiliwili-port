@@ -69,6 +69,11 @@ $ESUDO mount "$controlfolder/libs/${weston_runtime}.squashfs" "${weston_dir}"
 
 pm_platform_helper "wiliwili"
 
+# Kill gptokeyb — this port uses native SDL2 gamepad support.
+# gptokeyb translates gamepad → keyboard events, causing double-input
+# chaos when both streams reach borealis's keyboard fallback path.
+$ESUDO kill -9 $(pidof gptokeyb) 2>/dev/null
+
 # ── Launch ──
 # GL4ES (OpenGL→GLES2) configuration:
 #   LIBGL_ES=2        — use GLES 2.0 backend
