@@ -90,8 +90,8 @@ $ESUDO env \
         LIBGL_ES=2 \
         LIBGL_GL=21 \
         LIBGL_FB=4 \
-        LIBGL_DEFAULTWRAP=0 \     # force GL_REPEAT for mpv chroma sampling
-        LIBGL_FORCENPOT=1 \       # force full NPOT texture support
+        LIBGL_DEFAULTWRAP=0 \
+        LIBGL_FORCENPOT=1 \
         SDL_GAMECONTROLLERCONFIG="$sdl_controllerconfig" \
         ./wiliwili
 
